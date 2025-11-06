@@ -1,0 +1,29 @@
+library(data.table)
+
+# Set working directory where you want outputs
+setwd("/working/lab_miguelr/badeU")
+
+# Path to main UKBB tab-delimited data
+ukb_file <- "/reference/data/UKBB_500k/feb2024_pheno_data/ukb677634.tab"
+
+# Example: list of all relevant columns for field 41202
+cols_41202 <- paste0("f.41202.0.", 0:79)  # all 80 instances
+
+dt <- fread(ukb_file, select = c("f.eid", cols_41202))
+# Convert to character
+dt[, (cols_41202) := lapply(.SD, as.character), .SDcols = cols_41202]
+
+# Combine all instances into one column, separated by ";"
+dt[, all_codes := apply(.SD, 1, function(x) paste(na.omit(x), collapse = ";")), .SDcols = cols_41202]
+
+# Define the codes of interest
+codes_of_interest <- c("E109", "E119", "E114", "E104")
+
+# Filter participants who have at least one of these codes
+dt_selected_any <- dt_E[sapply(strsplit(E_codes, ","), function(x) any(codes_of_interest %in% x))]
+
+# Check first few rows
+head(dt_selected_any[, .(f.eid, E_codes)])
+
+# Count how many participants
+nrow(dt_selected_any)
