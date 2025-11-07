@@ -1,29 +1,54 @@
+#!/usr/bin/env Rscript
+
 library(data.table)
 
-# Set working directory where you want outputs
+# --- SETTINGS ---
 setwd("/working/lab_miguelr/badeU")
-
-# Path to main UKBB tab-delimited data
 ukb_file <- "/reference/data/UKBB_500k/feb2024_pheno_data/ukb677634.tab"
+cols_41270 <- paste0("f.41270.0.", 0:79)  # all instances for field 41270
 
-# Example: list of all relevant columns for field 41202
-cols_41202 <- paste0("f.41202.0.", 0:79)  # all 80 instances
+# --- READ DATA ---
+dt <- fread(ukb_file, select = c("f.eid", cols_41270), sep = "\t", header = TRUE)
+dt[, (cols_41270) := lapply(.SD, as.character), .SDcols = cols_41270]
 
-dt <- fread(ukb_file, select = c("f.eid", cols_41202))
-# Convert to character
-dt[, (cols_41202) := lapply(.SD, as.character), .SDcols = cols_41202]
+# collapse all instances into one string per participant
+dt[, all_codes := apply(.SD, 1, function(x) paste(na.omit(unique(x)), collapse = ";")), .SDcols = cols_41270]
+dt <- dt[nchar(all_codes) > 0]
 
-# Combine all instances into one column, separated by ";"
-dt[, all_codes := apply(.SD, 1, function(x) paste(na.omit(x), collapse = ";")), .SDcols = cols_41202]
+# split codes for easier processing
+split_codes <- strsplit(dt$all_codes, ";")
 
-# Define the codes of interest
-codes_of_interest <- c("E109", "E119", "E114", "E104")
+# --- DEFINE CODE SETS ---
+diabetes_codes <- c("E109", "E119")
+neuropathy_prefixes <- paste0("G6", 0:3)  # G60-G63
 
-# Filter participants who have at least one of these codes
-dt_selected_any <- dt_E[sapply(strsplit(E_codes, ","), function(x) any(codes_of_interest %in% x))]
+# helper functions
+has_prefix <- function(codes, prefixes) any(sapply(prefixes, function(pfx) any(startsWith(codes, pfx))))
+has_any_code <- function(codes, target_codes) any(codes %in% target_codes)
 
-# Check first few rows
-head(dt_selected_any[, .(f.eid, E_codes)])
+# --- CLASSIFY PARTICIPANTS ---
+is_diabetes <- sapply(split_codes, function(codes) has_any_code(codes, diabetes_codes))
+has_neuropathy <- sapply(split_codes, function(codes) has_prefix(codes, neuropathy_prefixes))
 
-# Count how many participants
-nrow(dt_selected_any)
+# Cases: diabetes + neuropathy
+is_case <- is_diabetes & has_neuropathy
+# Controls: diabetes WITHOUT neuropathy
+is_control <- is_diabetes & !has_neuropathy
+
+# --- COUNTS ---
+cat("Number of cases (E109/E119 + G60-G63):", sum(is_case), "\n")
+cat("Number of controls (E109/E119 WITHOUT G60-G63):", sum(is_control), "\n")
+
+# --- SAVE OUTPUT FILES ---
+fwrite(dt[is_case, .(f.eid, all_codes)], "cases_E109_E119_with_G60_G63.txt", sep="\t", quote=FALSE)
+fwrite(dt[is_control, .(f.eid, all_codes)], "controls_E109_E119_no_G60_G63.txt", sep="\t", quote=FALSE)
+
+# --- OPTIONAL: CREATE PLINK .sample FILE ---
+# FID = IID = f.eid, phenotype: 1 = case, 0 = control
+plink_sample <- rbind(
+  dt[is_case, .(FID = f.eid, IID = f.eid, PHENO = 1)],
+  dt[is_control, .(FID = f.eid, IID = f.eid, PHENO = 0)]
+)
+
+fwrite(plink_sample, "T2D_neuropathy_cases_controls.sample", sep="\t", quote=FALSE, col.names=TRUE)
+
