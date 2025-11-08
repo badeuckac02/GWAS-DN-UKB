@@ -1,71 +1,59 @@
-#!/usr/bin/env Rscript
 
-library(data.table)
-
-# --- SETTINGS ---
-setwd("/working/lab_miguelr/badeU")
-ukb_file <- "/reference/data/UKBB_500k/feb2024_pheno_data/ukb677634.tab"
-cols_41270 <- paste0("f.41270.0.", 0:79)  # all instances for field 41270
-
-# --- READ DATA ---
-dt <- fread(ukb_file, select = c("f.eid", cols_41270), sep = "\t", header = TRUE)
-dt[, (cols_41270) := lapply(.SD, as.character), .SDcols = cols_41270]
-
-# collapse all instances into one string per participant
-dt[, all_codes := apply(.SD, 1, function(x) paste(na.omit(unique(x)), collapse = ";")), .SDcols = cols_41270]
-dt <- dt[nchar(all_codes) > 0]
-
-# split codes for easier processing
-split_codes <- strsplit(dt$all_codes, ";")
-
-# --- DEFINE CODE SETS ---
-diabetes_codes <- c("E109", "E119")
-neuropathy_prefixes <- paste0("G6", 0:3)  # G60-G63
-
-# helper functions
-has_prefix <- function(codes, prefixes) any(sapply(prefixes, function(pfx) any(startsWith(codes, pfx))))
-has_any_code <- function(codes, target_codes) any(codes %in% target_codes)
-
-# --- CLASSIFY PARTICIPANTS ---
-is_diabetes <- sapply(split_codes, function(codes) has_any_code(codes, diabetes_codes))
-has_neuropathy <- sapply(split_codes, function(codes) has_prefix(codes, neuropathy_prefixes))
-
-# Cases: diabetes + neuropathy
-is_case <- is_diabetes & has_neuropathy
-# Controls: diabetes WITHOUT neuropathy
-is_control <- is_diabetes & !has_neuropathy
-
-# --- COUNTS ---
-cat("Number of cases (E109/E119 + G60-G63):", sum(is_case), "\n")
-cat("Number of controls (E109/E119 WITHOUT G60-G63):", sum(is_control), "\n")
-
-# --- SAVE OUTPUT FILES ---
-fwrite(dt[is_case, .(f.eid, all_codes)], "cases_E109_E119_with_G60_G63.txt", sep="\t", quote=FALSE)
-fwrite(dt[is_control, .(f.eid, all_codes)], "controls_E109_E119_no_G60_G63.txt", sep="\t", quote=FALSE)
-
-# Define diabetes code prefixes
-E10_prefix <- "E10"
-E11_prefix <- "E11"
-
-# Split codes (already done)
-split_codes <- strsplit(dt$all_codes, ";")
-
-# Helper function to check if any code starts with a prefix
-has_prefix <- function(codes, prefix) any(startsWith(codes, prefix))
-
-# Check for E10 and E11 presence in cases
-cases_split <- split_codes[is_case]
-has_E10_cases <- sapply(cases_split, function(c) has_prefix(c, E10_prefix))
-has_E11_cases <- sapply(cases_split, function(c) has_prefix(c, E11_prefix))
-overlap_cases <- sum(has_E10_cases & has_E11_cases)
-
-# Check for E10 and E11 presence in controls
-controls_split <- split_codes[is_control]
-has_E10_controls <- sapply(controls_split, function(c) has_prefix(c, E10_prefix))
-has_E11_controls <- sapply(controls_split, function(c) has_prefix(c, E11_prefix))
-overlap_controls <- sum(has_E10_controls & has_E11_controls)
-
-# Print results
-cat("Cases with both E10 and E11 codes:", overlap_cases, "\n")
-cat("Controls with both E10 and E11 codes:", overlap_controls, "\n")
-
+> library(data.table)
+data.table 1.16.0 using 8 threads (see ?getDTthreads).  Latest news: r-datatable.com
+> 
+> # --- SETTINGS ---
+> setwd("/working/lab_miguelr/badeU")
+> ukb_file <- "/reference/data/UKBB_500k/feb2024_pheno_data/ukb677634.tab"
+> cols_41270 <- paste0("f.41270.0.", 0:79)  # all instances for field 41270
+> 
+> # --- READ DATA ---
+> dt <- fread(ukb_file, select = c("f.eid", cols_41270), sep = "\t", header = TRUE)
+|--------------------------------------------------|
+|==================================================|
+> dt[, (cols_41270) := lapply(.SD, as.character), .SDcols = cols_41270]
+> 
+> # collapse all ICD codes per participant
+> dt[, all_codes := apply(.SD, 1, function(x) paste(na.omit(unique(x)), collapse = ";")), .SDcols = cols_41270]
+> dt <- dt[nchar(all_codes) > 0]
+> 
+> split_codes <- strsplit(dt$all_codes, ";")
+> 
+> # --- DEFINE CODE SETS ---
+> diabetes_codes <- c("E109", "E119")
+> neuropathy_codes <- c("G629", "G632", "G633", "G618", "G630", "G631")
+> 
+> # --- HELPER FUNCTIONS ---
+> has_any <- function(codes, targets) any(codes %in% targets)
+> 
+> # --- CLASSIFY PARTICIPANTS ---
+> has_E109 <- sapply(split_codes, function(c) "E109" %in% c)
+> has_E119 <- sapply(split_codes, function(c) "E119" %in% c)
+> has_neuro <- sapply(split_codes, function(c) any(c %in% neuropathy_codes))
+> 
+> # Exclude anyone with both E109 and E119
+> keep <- !(has_E109 & has_E119)
+> 
+> # Apply exclusion
+> dt <- dt[keep]
+> split_codes <- split_codes[keep]
+> has_E109 <- has_E109[keep]
+> has_E119 <- has_E119[keep]
+> has_neuro <- has_neuro[keep]
+> 
+> # Cases: E109 OR E119 AND neuropathy
+> is_case <- (has_E109 | has_E119) & has_neuro
+> 
+> # Controls: E109 OR E119 AND NO neuropathy
+> is_control <- (has_E109 | has_E119) & !has_neuro
+> 
+> # --- COUNTS ---
+> cat("Total participants with diabetes (E109/E119):", sum(has_E109 | has_E119), "\n")
+Total participants with diabetes (E109/E119): 41271 
+> cat("Excluded (both E109 & E119):", sum(!keep), "\n")
+Excluded (both E109 & E119): 3618 
+> cat("Number of cases (diabetes + neuropathy):", sum(is_case), "\n")
+Number of cases (diabetes + neuropathy): 1781 
+> cat("Number of controls (diabetes only):", sum(is_control), "\n")
+Number of controls (diabetes only): 39490 
+> 
