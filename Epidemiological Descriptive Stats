@@ -1,0 +1,72 @@
+library(data.table)
+library(openxlsx)
+
+# --- Settings ---
+ukb_file <- "/reference/data/UKBB_500k/feb2024_pheno_data/ukb677634.tab"
+out_dir <- "/working/lab_miguelr/badeU/AGDS_CP_GWAS"
+
+# Participant lists
+cases_ids <- fread("/working/lab_miguelr/badeU/UKB_DN_GWAS/cases.tsv")$f.eid
+controls_ids <- fread("/working/lab_miguelr/badeU/UKB_DN_GWAS/controls.tsv")$f.eid
+
+# Columns for HbA1c (30750)
+cols_30750 <- paste0("f.30750.0.", 0:3)
+
+# --- Read only relevant columns ---
+dt <- fread(ukb_file, select = c("f.eid", cols_30750))
+
+# --- Function to process HbA1c ---
+process_hba1c <- function(dt, ids, group_name) {
+  subdt <- dt[f.eid %in% ids]
+  
+  # Convert all instances to numeric
+  for (col in cols_30750) set(subdt, j = col, value = suppressWarnings(as.numeric(subdt[[col]])))
+  
+  # Take the latest non-NA instance per participant
+  subdt[, HbA1c := apply(.SD, 1, function(x) {
+    # Reverse order to prioritize the latest instance (3,2,1,0)
+    vals <- rev(x)
+    val <- vals[!is.na(vals)][1]
+    return(val)
+  }), .SDcols = cols_30750]
+  
+  # Exclude participants with NA in all instances
+  subdt <- subdt[!is.na(HbA1c)]
+  
+  cat(group_name, "- kept", nrow(subdt), "participants after filtering\n")
+  
+  # Summary statistics
+  summary_dt <- data.table(
+    Group = group_name,
+    N = nrow(subdt),
+    Mean_HbA1c = round(mean(subdt$HbA1c), 2),
+    Median_HbA1c = round(median(subdt$HbA1c), 2),
+    SD_HbA1c = round(sd(subdt$HbA1c), 2)
+  )
+  
+  # Save raw data and summary
+  raw_file <- file.path(out_dir, paste0("HbA1c_raw_", group_name, ".xlsx"))
+  summary_file <- file.path(out_dir, paste0("HbA1c_summary_", group_name, ".xlsx"))
+  write.xlsx(list(Raw_Data = subdt[, .(f.eid, HbA1c)], Summary = summary_dt),
+             file = raw_file, overwrite = TRUE)
+  write.xlsx(list(Summary = summary_dt), file = summary_file, overwrite = TRUE)
+  
+  cat("✅", group_name, "files written to:", raw_file, "and", summary_file, "\n")
+  
+  return(summary_dt)
+}
+
+# --- Process both groups ---
+summary_cases <- process_hba1c(dt, cases_ids, "Cases")
+summary_controls <- process_hba1c(dt, controls_ids, "Controls")
+
+# --- Combined summary ---
+combined <- rbind(summary_cases, summary_controls)
+combined_file <- file.path(out_dir, "HbA1c_combined_summary.xlsx")
+write.xlsx(list(Summary = combined), file = combined_file, overwrite = TRUE)
+cat("✅ Combined HbA1c summary written to:", combined_file, "\n")
+
+# --- Print summaries ---
+print(summary_cases)
+print(summary_controls)
+
