@@ -1,0 +1,39 @@
+STEP 1 =====> MERGE INDIVIDUAL CHROMOSOMES FOR SUBSET OF PARTICIPANTS AND MAKE .BIM/.BED/.FAM files for subset 
+
+module load  plink/1.90b6.26
+[badeU@hpcnode055 subset]$ plink \
+  --bfile allchr1 \
+  --merge-list merge_list.txt \ ## make a merge list for  .bim .bed .fam files for participants of interest
+  --make-bed \
+  --out allchr1_22_merged
+Output examples======> allchr1_22_subset.bed/allchr1_22_subset.bim/allchr1_22_subset.fam
+
+STEP 2 ======> MAKE  .PGEN/.PVAR/.PSAM 
+
+plink2 \
+  --bfile /working/lab_miguelr/badeU/UKB_DN_GWAS/subset/allchr1_22_merged \
+  --make-pgen \
+  --out /working/lab_miguelr/badeU/UKB_DN_GWAS/subset/allchr1_22_merged
+Output examples=====>  .pgen, .pvar, .psam
+
+STEP 3 =====> calculate grm matrix and input sampleid.txt 
+
+module load  GCTA/1.94.1  
+gcta64 \
+  --bfile /working/lab_miguelr/badeU/UKB_DN_GWAS/subset/allchr1_22_merged \
+  --autosome \
+  --make-grm \
+  --out /working/lab_miguelr/badeU/UKB_DN_GWAS/subset/allchr1_22_GRM
+
+Output examples========> allchr1_22_GRM.grm.bin/ allchr1_22_GRM.grm.N.bin/allchr1_22_GRM.grm.id
+
+FINAL STEP ======> Convert to sparseGRM format with relatedness cutoff 0.125 
+
+gcta64 \
+  --grm /working/lab_miguelr/badeU/UKB_DN_GWAS/subset/allchr1_22_GRM \
+  --grm-cutoff 0.125 \
+  --make-grm-sparse \
+  --out /working/lab_miguelr/badeU/UKB_DN_GWAS/subset/allchr1_22_sparseGRM
+
+Output Example =====> allchr1_22_sparseGRM.sparseGRM.mtx/ allchr1_22_sparseGRM.sparseGRM.mtx.sampleIDs.txt
+
